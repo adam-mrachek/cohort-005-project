@@ -8,7 +8,7 @@ Researched 2026-11-18 from vendor pricing pages and docs, MDN, WebKit and Postma
 
 - **Stack:** React Router 8 with SSR (`react-router.config.ts`), a Node server (`react-router-serve`), and one SQLite file (`data.db`) opened through `better-sqlite3` and Drizzle in `app/db/index.ts`. There is no queue, worker or cron process today.
 - **Event sources that exist:** `comments` (one level of replies, soft delete through `deletedAt`), `enrollments`, `lessonProgress` and `videoWatchEvents` (each has `userId`, `lessonId` and `createdAt`). The "no watch in 7 days" signal can come from `videoWatchEvents`.
-- **Missing pieces the map refers to:** On `main` there is **no** `app/lib/mailer.server.ts`, no Postmark dependency in `package.json`, no `docs/adr/0006-*` and no `GLOSSARY.md`. The "existing Postmark mailer" is not in this copy of the repo yet. Every option below needs an email provider set up from scratch, so this cost is the same for all of them.
+- **Email already exists:** `app/lib/mailer.server.ts` sends transactional email through Postmark (the `outbound` stream) when `POSTMARK_SERVER_TOKEN` is set, and otherwise writes to `.outbox/`. Every option below can reuse it, either directly (build) or by connecting Postmark as the vendor's email provider. One-SQLite-file is recorded in ADR 0006.
 - **Web push prerequisites missing:** `public/` has no web app manifest and no service worker. Every option needs both before push can work on iOS (see below).
 
 ## Web push facts that apply to every option
@@ -42,7 +42,7 @@ Sources: [Knock delay](https://docs.knock.app/designing-workflows/delay-function
 
 - **In-app:** a `notifications` table in SQLite (recipient, type, payload, `readAt`, `createdAt`), a bell made with shadcn, and a loader and action for the list and mark-as-read. It is fully styleable. For "real-time", the options are refreshing on navigation, polling, or SSE from the Node server.
 - **Push:** our own manifest, service worker, `push_subscriptions` table and the `web-push` library. Browser push services cost nothing.
-- **Email:** Postmark directly, with transactional and broadcast streams.
+- **Email:** the existing Postmark mailer (`app/lib/mailer.server.ts`), extended with a broadcast stream for nudges and digests.
 - **Delays, nudges and digests:** we build them. We need a durable job runner. With one SQLite file and one Node process, the simplest form is a `jobs` table (`runAt`, `status`) polled by an in-process interval or a separate `tsx` worker against the same file. WAL mode is already on.
 - **Preferences:** our own table keyed by notification type and channel, plus a `/settings` page.
 - **Run ourselves:** the job runner or cron, retries, removing dead push subscriptions, unsubscribe links, and observability.
@@ -126,5 +126,4 @@ Digests lower the message count for every per-message vendor. Knock does not say
 - **iOS web push is a product problem.** Every option requires Home Screen install, a manifest and a service worker that Cadence owns.
 - **Nudges depend on our data.** Watch activity lives in SQLite. Buying gives us delays and cancellation, but we still trigger on watch events or run our own inactivity job.
 - **There is no VAPID web push next to Postmark.** Only MagicBell has native VAPID web push, and it lacks Postmark. Every vendor with Postmark routes browser push through FCM or OneSignal, which adds a third party. Novu's Push Webhook is the exception: it can hand off to our own `web-push` sender.
-- **Novu self-hosted conflicts with ADR-style "one SQLite file" simplicity** because it needs MongoDB, Redis and S3.
-- **The email foundation is not on `main`.** The mailer, the Postmark dependency, ADR 0006 and `GLOSSARY.md` are referenced by the map but are not in this repo yet.
+- **Novu self-hosted conflicts with ADR 0006 ("one SQLite file through Drizzle")** because it needs MongoDB, Redis and S3.
